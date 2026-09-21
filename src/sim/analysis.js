@@ -2,6 +2,7 @@ import { ROOMS } from '../data/rooms.js';
 import { UNITS } from '../data/enemies.js';
 import { laneNodes } from './graph.js';
 import { dist } from '../core/geom.js';
+import { josa } from '../core/josa.js';
 
 /**
  * 전투를 돌리기 전에 노선을 읽어 "무엇이 맞물리고 무엇이 어긋나는가"를 알려 줍니다.
@@ -53,7 +54,8 @@ export function analyseLanes(map, lanes, raid, mods = {}) {
           (e) => e.type === 'damage' && e.school === 'fire',
         );
         if (nextIsFire) {
-          const window = oily.dur * statusScale;
+          // 개조로 늘어난 지속시간까지 반영해야 예측이 실제 전투와 맞습니다.
+          const window = oily.dur * statusScale * (a.mods?.statusDur ?? 1);
           links.push({
             laneIndex,
             from: a,
@@ -70,7 +72,7 @@ export function analyseLanes(map, lanes, raid, mods = {}) {
       // 독: 떼어놔야 이득인 효과. 이동 중 실제로 들어갈 피해를 미리 보여 줍니다.
       const poison = def.effects.find((e) => e.type === 'status' && e.status === 'poison');
       if (poison) {
-        const window = poison.dur * statusScale;
+        const window = poison.dur * statusScale * (a.mods?.statusDur ?? 1);
         const ticked = Math.min(travel, window) * poison.mag;
         links.push({
           laneIndex,
@@ -99,7 +101,7 @@ export function analyseLanes(map, lanes, raid, mods = {}) {
       kind: 'shared',
       roomId,
       lanes: laneList,
-      text: `${room.name}을(를) 노선 ${laneList.length}개가 공유 — 쿨타임도 공유합니다`,
+      text: `${josa(room.name, '을/를')} 노선 ${laneList.length}개가 공유 — 쿨타임도 공유합니다`,
     });
   }
 
@@ -126,8 +128,11 @@ export function laneDigest(map, lanes, raid, laneIndex, mods) {
  */
 export function suggestCombos(map, lanes, raid, mods = {}, limit = 2) {
   const statusScale = mods.statusScale ?? 1;
-  const oilWindow = (ROOMS.oil_room.effects[0].dur ?? 4) * statusScale;
   const speed = Math.min(...lanes.map((_, i) => laneSpeed(raid, i)));
+  const windowOf = (oil) =>
+    ROOMS[oil.roomId].effects.find((e) => e.status === 'oily').dur *
+    statusScale *
+    (oil.mods?.statusDur ?? 1);
 
   const oils = map.rooms.filter((r) =>
     ROOMS[r.roomId].effects.some((e) => e.type === 'status' && e.status === 'oily'),
@@ -146,9 +151,10 @@ export function suggestCombos(map, lanes, raid, mods = {}, limit = 2) {
   for (const oil of oils) {
     for (const fire of fires) {
       if (built.has(`${oil.id}>${fire.id}`)) continue;
+      const window = windowOf(oil);
       const travel = dist(oil, fire) / speed;
-      if (travel > oilWindow) continue;
-      out.push({ oil, fire, travel, window: oilWindow });
+      if (travel > window) continue;
+      out.push({ oil, fire, travel, window });
     }
   }
   out.sort((a, b) => a.travel - b.travel);

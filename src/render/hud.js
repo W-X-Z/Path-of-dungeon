@@ -5,6 +5,7 @@ import { PHASES, currentRaid, spent } from '../core/state.js';
 import { LANE_COLORS, ROOM_TINT, UNIT_TINT, C } from '../art/palette.js';
 import { ROOM_GLYPH, svgIcon, unitIcon } from '../art/sprites.js';
 import { sharedCounts } from '../sim/graph.js';
+import { josa } from '../core/josa.js';
 import { suggestCombos } from '../sim/analysis.js';
 
 const esc = (s) =>
@@ -233,6 +234,7 @@ export function createHud(dom, actions) {
           ${run.rewards
             .map(
               (r) => `<button class="reward" data-action="chooseReward" data-value="${r.id}">
+                ${r.roomId ? `<span class="rw-icon">${svgIcon(ROOM_GLYPH[r.roomId], ROOM_TINT[r.roomId], 20)}</span>` : ''}
                 <b>${esc(r.name)}</b><span>${esc(r.desc)}</span></button>`,
             )
             .join('')}
@@ -267,6 +269,15 @@ function reportHtml(report, skipHeadline = false) {
   return `
     ${skipHeadline ? '' : `<h2>${esc(report.headline)}</h2>`}
     ${report.totals.leaked === 0 && report.totals.spawned > 0 ? '<div class="badge">완전 봉쇄</div>' : ''}
+    ${
+      report.highlight
+        ? `<div class="highlight">
+            <span class="hl-t">${report.highlight.t.toFixed(1)}초</span>
+            <b>${esc(report.highlight.text)}</b>
+            <span class="hl-d">${report.highlight.damage}</span>
+          </div>`
+        : ''
+    }
     <div class="stats">
       <div><b>${report.castleHp}</b><span>마왕성</span></div>
       <div class="kill"><b>${report.totals.killed}</b><span>처치</span></div>
@@ -412,8 +423,8 @@ function feed(run) {
         case 'skip': return `<div>${t}<span class="bad">${esc(e.roomName)} 쿨타임 — 그냥 통과</span></div>`;
         case 'kill': return `<div>${t}<span class="kill">${UNITS[e.unit].name} 처치</span></div>`;
         case 'leak': return `<div>${t}<span class="bad">돌파 −${Math.round(e.damage)}</span></div>`;
-        case 'sabotage': return `<div>${t}<span>도적이 ${esc(e.roomName)}을 훼손</span></div>`;
-        case 'hold': return `<div>${t}<span>${esc(e.roomName)}이 붙잡았다</span></div>`;
+        case 'sabotage': return `<div>${t}<span>도적이 ${esc(josa(e.roomName, '을/를'))} 훼손</span></div>`;
+        case 'hold': return `<div>${t}<span>${esc(josa(e.roomName, '이/가'))} 붙잡았다</span></div>`;
         default: return '';
       }
     });

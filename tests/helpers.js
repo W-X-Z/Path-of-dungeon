@@ -15,6 +15,9 @@ export function testMap({ rooms = [], gates = [{ x: 0, y: 300 }], castle = { x: 
       name: ROOMS[r.roomId].name,
       x: r.x,
       y: r.y,
+      // 실제 지도 생성과 같은 모양이어야 합니다. 개조가 붙을 자리입니다.
+      mods: { potency: 1, cooldown: 1, capacity: 0, statusDur: 1 },
+      ranks: 0,
     })),
   };
 }

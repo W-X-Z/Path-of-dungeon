@@ -1,5 +1,6 @@
 import { ROOMS } from '../data/rooms.js';
 import { UNITS } from '../data/enemies.js';
+import { josa } from '../core/josa.js';
 
 /**
  * 전투 결과를 "왜 그렇게 됐는지"로 번역합니다.
@@ -36,8 +37,8 @@ export function summarize(state, map) {
       weight: list.reduce((s, e) => s + e.units.length, 0) * 12,
       kind: 'cooldown',
       roomId,
-      text: `${name}이(가) 쿨타임이라 ${list.length}번 그냥 통과당했습니다.`,
-      detail: `가장 큰 손실은 ${fmtTime(worst.t)}에 ${fmtUnits(worst.units)} ${worst.units.length}명을 놓친 것입니다 (남은 쿨타임 ${worst.remaining}초).`,
+      text: `${josa(name, '이/가')} 쿨타임이라 ${list.length}번 그냥 통과당했습니다.`,
+      detail: `가장 큰 손실은 ${fmtTime(worst.t)}에 ${fmtUnits(worst.units)} ${worst.units.length}명을 놓친 것입니다 (남은 쿨타임 ${worst.remaining.toFixed(1)}초).`,
       fix: `이 방을 두 노선이 함께 쓰고 있다면 한쪽을 다른 방으로 돌리거나, 거미굴로 한쪽 도착을 늦춰 간격을 벌리세요.`,
     });
   }
@@ -129,6 +130,7 @@ export function summarize(state, map) {
   return {
     outcome: state.outcome,
     headline,
+    highlight: bestMoment(ev),
     castleHp: Math.max(0, Math.round(state.castleHp)),
     totals: state.totals,
     rooms,
@@ -140,6 +142,36 @@ export function summarize(state, map) {
       units: l.units,
       damage: l.damage,
     })),
+  };
+}
+
+/**
+ * 이번 전투에서 가장 통쾌했던 한 순간.
+ *
+ * 리포트가 분석만 내놓으면 잘했을 때 돌아오는 것이 없습니다.
+ * 원인을 짚기 전에, 내가 만든 최고의 장면을 먼저 보여 줍니다.
+ */
+function bestMoment(events) {
+  const fires = events.filter((e) => e.type === 'fire' && (e.kills > 0 || e.damage > 0));
+  if (!fires.length) return null;
+  // 처치가 피해보다 훨씬 값집니다. 한 번에 여럿을 쓸어 담은 장면이 최고의 장면입니다.
+  const best = fires.reduce((a, b) =>
+    (b.kills ?? 0) * 120 + (b.damage ?? 0) > (a.kills ?? 0) * 120 + (a.damage ?? 0) ? b : a,
+  );
+  if ((best.kills ?? 0) === 0 && (best.damage ?? 0) < 40) return null;
+  return {
+    t: best.t,
+    room: best.roomName,
+    roomId: best.room,
+    kills: best.kills ?? 0,
+    damage: Math.round(best.damage ?? 0),
+    combo: !!best.combo,
+    text:
+      best.kills >= 2
+        ? `${josa(best.roomName, '이/가')} ${best.kills}명을 한 번에 쓸어버렸습니다`
+        : best.combo
+          ? `${best.roomName}에서 기름에 불이 붙었습니다`
+          : `${josa(best.roomName, '이/가')} 가장 크게 때렸습니다`,
   };
 }
 

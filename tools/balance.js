@@ -108,12 +108,18 @@ function tally(a) {
   for (const v of a) m.set(v, (m.get(v) ?? 0) + 1);
   return [...m].sort((x, y) => x[0] - y[0]).map(([k, v]) => `${k}번:${v}`).join(' ');
 }
-/** 플래너는 체력이 위험하면 회복을, 아니면 예산을 택합니다. */
+/**
+ * 플래너의 보상 선택.
+ * 체력이 위험하면 회복, 아니면 실제로 쓰고 있는 방의 개조를 우선합니다.
+ * (전역 수치보다 노선에 올라간 방을 키우는 편이 보통 이득입니다.)
+ */
 function pickReward(run) {
-  const low = run.castleHp < run.castleHpMax * 0.45;
-  const want = low ? ['repair', 'potency', 'budget'] : ['budget', 'potency', 'new_room'];
-  for (const id of want) {
-    if (run.rewards.some((r) => r.id === id)) return id;
+  if (run.castleHp < run.castleHpMax * 0.45) {
+    const repair = run.rewards.find((r) => r.id === 'repair');
+    if (repair) return repair.id;
   }
-  return run.rewards[0].id;
+  const upgrade = run.rewards.find((r) => r.roomId);
+  if (upgrade) return upgrade.id;
+  const budget = run.rewards.find((r) => r.id === 'budget');
+  return (budget ?? run.rewards[0]).id;
 }

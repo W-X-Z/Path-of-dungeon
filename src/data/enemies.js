@@ -24,7 +24,7 @@ export const UNITS = {
     speed: 50,
     castleDamage: 8,
     // 살아 있는 한 매초 가장 다친 아군을 회복시킵니다.
-    heal: 9,
+    heal: 6.5,
     role: '파티를 계속 회복시킵니다. 지속 피해 위주의 던전을 무력화합니다.',
   },
   rogue: {

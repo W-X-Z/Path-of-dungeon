@@ -480,3 +480,133 @@ test('전투 중 편집은 예산 규칙을 똑같이 지킨다', async () => {
   assert.equal(JSON.stringify(run.lanes), before);
   assert.match(run.notice, /예산/);
 });
+
+test('방 개조는 그 방에만, 실제로 적용된다', async () => {
+  const { UPGRADES } = await import('../src/data/rewards.js');
+  const map = testMap({
+    rooms: [{ roomId: 'blast_trap', x: 250, y: 300 }, { roomId: 'blast_trap', x: 550, y: 300 }],
+  });
+  const lanes = [laneOf(0, map, [0, 1])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['knight'] }]);
+
+  const before = run(map, lanes, raid).events.filter((e) => e.type === 'fire');
+
+  // 첫 번째 폭발 함정에만 마력을 주입합니다.
+  UPGRADES.find((u) => u.id === 'potency').apply(map.rooms[0]);
+  const after = run(map, lanes, raid).events.filter((e) => e.type === 'fire');
+
+  assert.ok(after[0].damage > before[0].damage * 1.3, '개조한 방은 더 아파야 합니다');
+  assert.ok(
+    Math.abs(after[1].damage - before[1].damage) < 0.01,
+    '개조하지 않은 같은 종류의 방은 그대로여야 합니다',
+  );
+});
+
+test('보상은 쓰고 있는 방의 개조를 반드시 하나 포함한다', async () => {
+  const { rollRewards } = await import('../src/data/rewards.js');
+  const { newRun, suggestLayout } = await import('../src/core/state.js');
+  const { makeRng } = await import('../src/core/rng.js');
+
+  for (let seed = 1; seed <= 15; seed++) {
+    const r = newRun(seed);
+    suggestLayout(r);
+    const offers = rollRewards(r, makeRng(seed));
+    assert.equal(offers.length, 3);
+    assert.ok(offers.some((o) => o.roomId), `seed ${seed}: 개조 제안이 없습니다`);
+    // 붙잡지 않는 방에 '증원'을 내밀면 보상이 아니라 함정입니다.
+    for (const o of offers) {
+      if (o.name.includes('증원')) {
+        assert.ok(['orc_post'].includes(o.roomId), `증원이 엉뚱한 방에 붙었습니다: ${o.name}`);
+      }
+    }
+  }
+});
+
+test('방에 맞지 않는 개조는 제안하지 않는다', async () => {
+  const { UPGRADES } = await import('../src/data/rewards.js');
+  const map = testMap({
+    rooms: [
+      { roomId: 'oil_room', x: 200, y: 300 },
+      { roomId: 'blast_trap', x: 400, y: 300 },
+      { roomId: 'orc_post', x: 600, y: 300 },
+    ],
+  });
+  const [oil, blast, orc] = map.rooms;
+  const fitsOf = (room) => UPGRADES.filter((u) => u.fits(room)).map((u) => u.id);
+
+  // 기름방은 피해가 0 입니다. 마력 주입은 아무 일도 하지 않습니다.
+  assert.ok(!fitsOf(oil).includes('potency'), '피해가 없는 방에 마력 주입을 권하면 안 됩니다');
+  assert.ok(fitsOf(oil).includes('duration'), '기름방에는 지속시간 개조가 맞습니다');
+  assert.ok(!fitsOf(blast).includes('capacity'), '붙잡지 않는 방에 증원은 맞지 않습니다');
+  assert.ok(fitsOf(orc).includes('capacity'));
+  // 모든 방은 최소 하나의 개조를 받을 수 있어야 합니다.
+  for (const room of map.rooms) assert.ok(fitsOf(room).length > 0, `${room.name}에 맞는 개조가 없습니다`);
+});
+
+test('기름방 농도 개조는 연계 가능 거리를 실제로 넓힌다', async () => {
+  const { analyseLanes } = await import('../src/sim/analysis.js');
+  const { UPGRADES } = await import('../src/data/rewards.js');
+
+  // 220유닛 = 기사 속도 44 로 5.0초. 기본 4초 창으로는 끊기고, 6.4초 창이면 성립합니다.
+  const map = testMap({
+    rooms: [{ roomId: 'oil_room', x: 100, y: 300 }, { roomId: 'flame_altar', x: 320, y: 300 }],
+  });
+  const lanes = [laneOf(0, map, [0, 1])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['knight'] }]);
+
+  const before = analyseLanes(map, lanes, raid).links.find((l) => l.kind === 'combo');
+  assert.equal(before.ok, false);
+  assert.ok(run(map, lanes, raid).events.some((e) => e.type === 'comboMiss'));
+
+  UPGRADES.find((u) => u.id === 'duration').apply(map.rooms[0]);
+
+  const after = analyseLanes(map, lanes, raid).links.find((l) => l.kind === 'combo');
+  assert.equal(after.ok, true, '개조 후에는 예측도 성립으로 바뀌어야 합니다');
+  assert.ok(
+    run(map, lanes, raid).events.some((e) => e.type === 'combo'),
+    '예측이 성립이라고 했으면 실제로도 터져야 합니다',
+  );
+});
+
+test('조사가 받침에 맞게 붙는다', async () => {
+  const { josa, hasBatchim } = await import('../src/core/josa.js');
+  assert.equal(josa('폭발 함정', '이/가'), '폭발 함정이');
+  assert.equal(josa('거미굴', '이/가'), '거미굴이');
+  assert.equal(josa('기름방', '이/가'), '기름방이');
+  assert.equal(josa('화염 제단', '이/가'), '화염 제단이');
+  assert.equal(josa('독 늪', '을/를'), '독 늪을');
+  assert.equal(josa('오크 초소', '을/를'), '오크 초소를');
+  assert.equal(josa('북문', '은/는'), '북문은');
+  assert.equal(josa('서문', '으로/로'), '서문으로');
+  assert.equal(josa('거미굴', '으로/로'), '거미굴로', 'ㄹ 받침은 로 를 씁니다');
+  assert.equal(hasBatchim('가'), false);
+  assert.equal(hasBatchim('강'), true);
+  // 한글이 아닌 이름이 섞여도 무너지지 않아야 합니다.
+  assert.equal(josa('A', '이/가'), 'A가');
+});
+
+test('사용자에게 보이는 문구에 기계적인 괄호 조사가 남아 있지 않다', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+
+  const walk = async (dir) => {
+    const out = [];
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) out.push(...(await walk(full)));
+      else if (e.name.endsWith('.js')) out.push(full);
+    }
+    return out;
+  };
+
+  const offenders = [];
+  for (const file of await walk(new URL('../src', import.meta.url).pathname)) {
+    // josa.js 는 이 표기를 설명하기 위해 본문에 인용합니다.
+    if (file.endsWith('josa.js')) continue;
+    const text = await readFile(file, 'utf8');
+    text.split('\n').forEach((line, i) => {
+      if (/이\(가\)|을\(를\)|은\(는\)|과\(와\)/.test(line)) offenders.push(`${file}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(offenders, [], `괄호 조사가 남아 있습니다:\n${offenders.join('\n')}`);
+});

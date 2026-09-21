@@ -53,11 +53,13 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
 
   const roomState = new Map();
   for (const room of map.rooms) {
+    const mods = { potency: 1, cooldown: 1, capacity: 0, statusDur: 1, ...room.mods };
     roomState.set(room.id, {
       id: room.id,
       roomId: room.roomId,
+      mods,
       cd: 0,
-      maxCd: ROOMS[room.roomId].cooldown * cooldownScale,
+      maxCd: ROOMS[room.roomId].cooldown * cooldownScale * mods.cooldown,
       fired: 0,
       skipped: 0,
       damage: 0,
@@ -222,17 +224,22 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     for (const eff of def.effects) {
       if (eff.type === 'damage') {
         for (const m of targetsFor(party, def.target)) {
-          applyDamage(party, m, eff.amount * potency, eff.school, node.id);
+          applyDamage(party, m, eff.amount * potency * rs.mods.potency, eff.school, node.id);
         }
       } else if (eff.type === 'status') {
-        for (const m of targetsFor(party, def.target)) addStatus(m, eff.status, eff.dur, eff.mag);
+        const dur = eff.dur * rs.mods.statusDur;
+        for (const m of targetsFor(party, def.target)) addStatus(m, eff.status, dur, eff.mag);
         if (eff.status === 'oily') {
           party.oilAppliedAt = state.time;
           party.oilRoom = node.id;
         }
       } else if (eff.type === 'hold') {
         party.holdUntil = state.time + eff.dur;
-        party.heldBy = { room: node.id, capacity: eff.capacity, dps: eff.dps * potency };
+        party.heldBy = {
+          room: node.id,
+          capacity: eff.capacity + rs.mods.capacity,
+          dps: eff.dps * potency * rs.mods.potency,
+        };
         log('hold', { party: party.id, room: node.id, roomName: def.name, dur: eff.dur });
       }
     }

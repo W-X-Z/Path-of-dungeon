@@ -4,9 +4,10 @@ import { createBattle, TICK } from '../sim/battle.js';
 import { suggestCombos } from '../sim/analysis.js';
 import { summarize } from '../sim/report.js';
 import { RAIDS, CASTLE_HP } from '../data/waves.js';
-import { REWARD_POOL } from '../data/rewards.js';
+import { rollRewards } from '../data/rewards.js';
 import { makeRng } from './rng.js';
 import { dist } from './geom.js';
+import { josa } from './josa.js';
 
 export const PHASES = {
   BUILD: 'build',
@@ -60,7 +61,7 @@ export function syncLanes(run) {
     const gate = run.map.gates[run.lanes.length];
     run.budget += Math.round(dist(gate, run.map.castle) + GATE_SLACK);
     run.lanes.push({ gate: run.lanes.length, rooms: [] });
-    run.notice = `${gate.name}이(가) 열렸습니다. 통로 예산이 늘었습니다.`;
+    run.notice = `${josa(gate.name, '이/가')} 열렸습니다. 통로 예산이 늘었습니다.`;
   }
 }
 
@@ -216,13 +217,8 @@ export function finishBattle(run) {
     run.outcome = 'victory';
     return;
   }
-  run.rewards = rollRewards(run);
+  run.rewards = rollRewards(run, makeRng(run.seed + run.raidIndex * 104729));
   run.phase = PHASES.REWARD;
-}
-
-function rollRewards(run) {
-  const rng = makeRng(run.seed + run.raidIndex * 104729);
-  return rng.shuffle(REWARD_POOL).slice(0, 3);
 }
 
 export function chooseReward(run, rewardId) {

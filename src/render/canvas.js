@@ -244,6 +244,16 @@ export function createRenderer(canvas) {
       ctx.lineCap = 'butt';
     }
 
+    // 개조 등급 — 내가 키운 방이라는 것이 지도에서 보여야 합니다.
+    if (room.ranks > 0) {
+      for (let k = 0; k < Math.min(room.ranks, 4); k++) {
+        ctx.fillStyle = C.sulfur;
+        ctx.beginPath();
+        ctx.arc(room.x - (Math.min(room.ranks, 4) - 1) * 3 + k * 6, room.y - r - 8, 2.1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     // 공유 표시 — 쿨타임을 나눠 쓴다는 경고
     if (shares > 1) {
       ctx.strokeStyle = C.sulfur;

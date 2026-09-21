@@ -39,7 +39,7 @@ export const RAIDS = [
     squads: [
       { gate: 0, at: 0, units: ['knight', 'knight', 'priest'] },
       { gate: 1, at: 2, units: ['knight', 'knight', 'knight', 'priest'] },
-      { gate: 1, at: 10, units: ['rogue', 'rogue', 'priest'] },
+      { gate: 1, at: 10, units: ['rogue', 'rogue', 'rogue'] },
     ],
     teaches: '사제가 살아 있으면 지속 피해가 상쇄됩니다. 한 곳에 피해를 몰아야 합니다.',
   },

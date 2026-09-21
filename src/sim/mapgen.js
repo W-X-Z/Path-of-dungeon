@@ -183,6 +183,9 @@ export function makeRoomInstance(roomId, x, y, index) {
     name: ROOMS[roomId].name,
     x: Math.round(x),
     y: Math.round(y),
+    // 개조는 방 하나하나에 붙습니다. 전역 수치보다 '내가 키운 방'이라는 감각이 큽니다.
+    mods: { potency: 1, cooldown: 1, capacity: 0, statusDur: 1 },
+    ranks: 0,
   };
 }
 
