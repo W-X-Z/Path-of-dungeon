@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- 아트 확인용 페이지. npm start 후 /tools/sprite-preview.html 로 엽니다.
+     경로 데이터는 그려보지 않으면 판단할 수 없어서 따로 둡니다. -->
+<html lang="ko"><head><meta charset="utf-8" /><title>스프라이트 확인</title>
+<style>
+  body { margin:0; background:#0c0a10; color:#f4efe4; font-family: ui-sans-serif, system-ui, sans-serif; padding:24px; }
+  h2 { font-size:12px; letter-spacing:.14em; color:rgba(244,239,228,.45); margin:26px 0 10px; font-weight:700; }
+  canvas { display:block; }
+</style></head><body>
+<h2>침입자 — 12 / 18 / 34 px</h2><canvas id="units" width="900" height="120"></canvas>
+<h2>방 문장 — 14 / 22 / 44 px</h2><canvas id="rooms" width="900" height="150"></canvas>
+<h2>마왕성 · 입구 — 24 / 48 / 72 px</h2><canvas id="places" width="900" height="170"></canvas>
+<script type="module">
+import { UNIT_ART, ROOM_GLYPH, CASTLE_ART, GATE_ART, drawArt } from '../src/art/sprites.js';
+import { UNIT_TINT, ROOM_TINT, C } from '../src/art/palette.js';
+
+const dpr = Math.min(devicePixelRatio || 1, 2);
+const setup = (id) => {
+  const cv = document.getElementById(id);
+  const w = cv.width, h = cv.height;
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  cv.width = w * dpr; cv.height = h * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return ctx;
+};
+const label = (ctx, t, x, y) => {
+  ctx.fillStyle = 'rgba(244,239,228,.4)';
+  ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(t, x, y);
+};
+
+const u = setup('units');
+[12, 18, 34].forEach((size, row) => {
+  Object.entries(UNIT_ART).forEach(([id, art], i) => {
+    const x = 60 + i * 110 + row * 380, y = 44;
+    drawArt(u, art.body, x, y, size, { fill: UNIT_TINT[id] });
+    if (art.ring) drawArt(u, art.ring, x, y, size, { fill: UNIT_TINT[id] });
+    if (art.mark) drawArt(u, art.mark, x, y, size, { fill: C.void });
+    if (row === 2) label(u, id, x, y + size / 2 + 16);
+  });
+});
+
+const r = setup('rooms');
+[14, 22, 44].forEach((size, row) => {
+  Object.entries(ROOM_GLYPH).forEach(([id, d], i) => {
+    const x = 50 + i * 88 + row * 0, y = 34 + row * 42;
+    drawArt(r, d, x, y, size, { fill: ROOM_TINT[id] });
+    if (row === 2) label(r, id, x, y + size / 2 + 14);
+  });
+});
+
+const p = setup('places');
+[24, 48, 72].forEach((size, i) => {
+  const x = 80 + i * 130, y = 80;
+  drawArt(p, CASTLE_ART.keep, x, y, size, { fill: C.arcane });
+  drawArt(p, CASTLE_ART.spire, x, y, size, { fill: C.arcane });
+  drawArt(p, CASTLE_ART.gate, x, y, size, { fill: C.void });
+  drawArt(p, GATE_ART, x + 460, y, size, { fill: C.frost });
+});
+</script></body></html>

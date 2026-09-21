@@ -47,7 +47,18 @@ await collect(ENTRY);
 const order = topoSort();
 
 const html = await readFile(join(ROOT, 'index.html'), 'utf8');
-const css = await readFile(join(ROOT, 'styles.css'), 'utf8');
+let css = await readFile(join(ROOT, 'styles.css'), 'utf8');
+
+// 폰트를 CSS 안에 직접 박아 넣습니다. 단일 파일이 외부 파일을 참조하면
+// 건네줄 때 깨지므로, 자기완결성이 파일 크기보다 중요합니다.
+const fontRefs = [...css.matchAll(/url\("(\.\/assets\/fonts\/[^"]+)"\)/g)];
+for (const [, rel] of fontRefs) {
+  const bytes = await readFile(join(ROOT, rel));
+  css = css.replace(
+    `url("${rel}")`,
+    `url(data:font/woff2;base64,${bytes.toString('base64')})`,
+  );
+}
 
 const loader = `
 const SRC = ${JSON.stringify(Object.fromEntries(order.map((p) => [p, sources.get(p)])))};

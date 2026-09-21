@@ -66,6 +66,8 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
 
   let spawnCursor = 0;
   let partySeq = 0;
+  // 한 번의 방 발동이 넣은 피해를 모읍니다 (연출용 집계).
+  const burst = { dealt: 0 };
 
   const log = (type, data) => state.events.push({ t: round2(state.time), type, ...data });
 
@@ -82,6 +84,7 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
         holdUntil: 0,
         heldBy: null,
         oilAppliedAt: null,
+        oilRoom: null,
         done: false,
       };
       state.parties.push(party);
@@ -108,12 +111,19 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
         dealt = amount * OIL_COMBO.multiplier;
         delete m.statuses.oily;
         addStatus(m, OIL_COMBO.burn.status, OIL_COMBO.burn.dur, OIL_COMBO.burn.mag);
-        log('combo', { party: party.id, unit: m.type, source, bonus: round2(dealt - amount) });
+        log('combo', {
+          party: party.id,
+          unit: m.type,
+          source,
+          from: party.oilRoom,
+          bonus: round2(dealt - amount),
+        });
       }
     }
     m.hp -= dealt;
     const rs = source ? state.rooms.get(source) : null;
-    if (rs) rs.damage += Math.min(dealt, dealt);
+    if (rs) rs.damage += dealt;
+    burst.dealt += dealt;
     if (m.hp <= 0) {
       m.hp = 0;
       state.totals.killed += 1;
@@ -166,6 +176,7 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     rs.fired += 1;
     rs.cd = rs.maxCd;
     log('fire', { party: party.id, room: node.id, roomName: def.name, units: alive(party).length });
+    const fireEvent = state.events[state.events.length - 1];
 
     // 도적은 지나가면서 함정을 건드려 재정비를 늦춥니다.
     //
@@ -182,6 +193,8 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     }
 
     const eventsBefore = state.events.length;
+    const killsBefore = state.totals.killed;
+    burst.dealt = 0;
 
     for (const eff of def.effects) {
       if (eff.type === 'damage') {
@@ -190,7 +203,10 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
         }
       } else if (eff.type === 'status') {
         for (const m of targetsFor(party, def.target)) addStatus(m, eff.status, eff.dur, eff.mag);
-        if (eff.status === 'oily') party.oilAppliedAt = state.time;
+        if (eff.status === 'oily') {
+          party.oilAppliedAt = state.time;
+          party.oilRoom = node.id;
+        }
       } else if (eff.type === 'hold') {
         party.holdUntil = state.time + eff.dur;
         party.heldBy = { room: node.id, capacity: eff.capacity, dps: eff.dps * potency };
@@ -206,6 +222,12 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     const comboFired = state.events
       .slice(eventsBefore)
       .some((e) => e.type === 'combo');
+
+    // 이번 발동의 성과를 발동 이벤트에 되돌려 적습니다.
+    // 연출 계층이 "얼마나 아팠는지"를 알아야 타격감의 크기를 정할 수 있습니다.
+    fireEvent.damage = round2(burst.dealt);
+    fireEvent.kills = state.totals.killed - killsBefore;
+    fireEvent.combo = comboFired;
     const isFire = def.effects.some((e) => e.type === 'damage' && e.school === 'fire');
     if (
       isFire &&

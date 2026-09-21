@@ -1,6 +1,7 @@
 import { generateMap, addRandomRoom } from '../sim/mapgen.js';
 import { totalCost, toggleRoom, bestInsertion } from '../sim/graph.js';
 import { createBattle, TICK } from '../sim/battle.js';
+import { suggestCombos } from '../sim/analysis.js';
 import { summarize } from '../sim/report.js';
 import { RAIDS, CASTLE_HP } from '../data/waves.js';
 import { REWARD_POOL } from '../data/rewards.js';
@@ -17,7 +18,7 @@ export const PHASES = {
 // 예산은 입구가 열릴 때마다 '그 입구에서 마왕성까지의 직선 + 우회 여유'로 지급합니다.
 // 시작값을 따로 크게 잡으면 입구 수와 예산이 따로 놀아 1번 입구만 과하게 넉넉해집니다.
 const START_BUDGET = 150;
-const GATE_SLACK = 290;
+const GATE_SLACK = 250;
 
 export function newRun(seed = Math.floor(Math.random() * 1e9)) {
   const map = generateMap(seed);
@@ -78,22 +79,91 @@ export function tapRoom(run, roomId, atIndex = null) {
   return true;
 }
 
-/** 추천 연결: 각 노선에 예산이 허락하는 만큼 가까운 방을 붙여 줍니다. 첫 플레이용. */
+/**
+ * 추천 연결: 각 노선에 쓸 만한 출발점을 깔아 줍니다.
+ *
+ * 순서가 중요합니다. 비싼 연계부터 채우면 예산을 다 써서 새로 열린 입구가
+ * 빈 채로 남습니다. 방이 없는 노선은 그냥 뚫리므로 무엇보다 나쁩니다.
+ *   1) 모든 노선에 최소 한 개   2) 성립하는 연계   3) 남는 예산으로 보강
+ */
 export function suggestLayout(run) {
-  for (let i = 0; i < run.lanes.length; i++) {
-    const taken = new Set(run.lanes.flatMap((l) => l.rooms));
-    const candidates = run.map.rooms
-      .filter((r) => !taken.has(r.id))
+  const raid = currentRaid(run);
+  const taken = () => new Set(run.lanes.flatMap((l) => l.rooms));
+
+  const withLane = (i, fn) => {
+    const before = run.selectedLane;
+    run.selectedLane = i;
+    const out = fn();
+    run.selectedLane = before;
+    return out;
+  };
+
+  const cheapestFor = (i) => {
+    const used = taken();
+    return run.map.rooms
+      .filter((r) => !used.has(r.id))
       .map((r) => ({ r, delta: bestInsertion(run.map, run.lanes[i], r).delta }))
       .sort((a, b) => a.delta - b.delta);
-    for (const c of candidates.slice(0, 3)) {
-      const before = run.selectedLane;
-      run.selectedLane = i;
-      tapRoom(run, c.r.id);
-      run.selectedLane = before;
+  };
+
+  // 1) 빈 노선을 먼저 없앱니다. 예산이 모자라면 다른 노선에서 덜어 옵니다.
+  //    통로 예산은 공유 자원이라, 먼저 채운 노선이 나중에 열린 입구를 굶길 수 있습니다.
+  run.lanes.forEach((lane, i) => {
+    if (lane.rooms.length > 0) return;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const fitted = cheapestFor(i).some((c) => withLane(i, () => tapRoom(run, c.r.id)));
+      if (fitted) return;
+      if (!freeUpBudget(run, i)) return;
     }
+  });
+
+  // 2) 성립하는 기름 -> 화염 쌍을 붙여서 넣습니다.
+  //    가장 가까운 쌍이 이 입구에서 멀어 예산이 모자랄 수 있으므로 몇 개를 시도합니다.
+  if (raid) {
+    run.lanes.forEach((lane, i) => {
+      const pairs = suggestCombos(run.map, run.lanes, raid, { statusScale: run.statusScale }, 5);
+      for (const pair of pairs) {
+        const used = taken();
+        if (used.has(pair.oil.id) || used.has(pair.fire.id)) continue;
+        const placed = withLane(i, () => {
+          if (!tapRoom(run, pair.oil.id)) return false;
+          const at = run.lanes[i].rooms.indexOf(pair.oil.id) + 1;
+          if (tapRoom(run, pair.fire.id, at)) return true;
+          tapRoom(run, pair.oil.id); // 둘 다 못 넣으면 되돌립니다
+          return false;
+        });
+        if (placed) break;
+      }
+    });
   }
+
+  // 3) 남는 예산으로 가까운 방을 더 붙입니다.
+  run.lanes.forEach((lane, i) => {
+    for (const c of cheapestFor(i).slice(0, 2)) withLane(i, () => tapRoom(run, c.r.id));
+  });
+
   run.notice = null;
+}
+
+/**
+ * 가장 많이 가진 노선에서 가장 비싼 방을 하나 뺍니다.
+ * 방 하나 없는 노선을 남기느니, 잘 갖춘 노선을 조금 덜어내는 편이 낫습니다.
+ */
+function freeUpBudget(run, exceptLane) {
+  let best = null;
+  run.lanes.forEach((lane, i) => {
+    if (i === exceptLane || lane.rooms.length <= 1) return;
+    for (const roomId of lane.rooms) {
+      const without = run.lanes.map((l, k) =>
+        k === i ? { ...l, rooms: l.rooms.filter((r) => r !== roomId) } : l,
+      );
+      const saved = totalCost(run.map, run.lanes) - totalCost(run.map, without);
+      if (!best || saved > best.saved) best = { saved, lanes: without };
+    }
+  });
+  if (!best || best.saved <= 0) return false;
+  run.lanes = best.lanes;
+  return true;
 }
 
 export function startBattle(run) {

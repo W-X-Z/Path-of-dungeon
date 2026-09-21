@@ -4,6 +4,7 @@ import { createBattle } from '../src/sim/battle.js';
 import { totalCost, toggleRoom, bestInsertion } from '../src/sim/graph.js';
 import { summarize } from '../src/sim/report.js';
 import { generateMap } from '../src/sim/mapgen.js';
+import { UNITS } from '../src/data/enemies.js';
 import { testMap, laneOf, raidOf } from './helpers.js';
 
 const CASTLE_HP = 1000; // 테스트에서는 조기 종료를 막기 위해 넉넉히 둡니다.
@@ -264,4 +265,164 @@ test('연계로 적을 죽였으면 같은 발동을 연계 무산으로도 기�
     '연계가 성공한 발동을 무산으로 기록하면 안 됩니다',
   );
   assert.equal(summarize(state, map).combo.misses, 0);
+});
+
+test('발동 이벤트는 그 발동의 성과를 싣고 온다 (연출이 참조할 근거)', () => {
+  const map = testMap({
+    rooms: [{ roomId: 'oil_room', x: 200, y: 300 }, { roomId: 'flame_altar', x: 250, y: 300 }],
+  });
+  const state = run(map, [laneOf(0, map, [0, 1])], raidOf([{ gate: 0, at: 0, units: ['knight'] }]));
+
+  const fires = state.events.filter((e) => e.type === 'fire');
+  const flame = fires.find((e) => e.roomName === '화염 제단');
+  const oil = fires.find((e) => e.roomName === '기름방');
+
+  assert.ok(flame.damage > 0, '피해를 준 발동은 damage 를 실어야 합니다');
+  assert.equal(flame.combo, true, '연계 여부가 기록돼야 합니다');
+  assert.equal(oil.damage, 0, '기름방은 피해가 없으므로 0 이어야 합니다');
+  assert.equal(oil.combo, false);
+
+  // 연계 이벤트는 기름을 묻힌 방을 가리켜야 합니다. 두 방을 잇는 연출의 근거입니다.
+  const combo = state.events.find((e) => e.type === 'combo');
+  assert.equal(combo.from, map.rooms[0].id);
+  assert.equal(combo.source, map.rooms[1].id);
+});
+
+test('훼손이 일어나도 발동 성과가 엉뚱한 이벤트에 붙지 않는다', () => {
+  const map = testMap({ rooms: [{ roomId: 'blast_trap', x: 300, y: 300 }] });
+  const lanes = [laneOf(0, map, [0])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['rogue', 'rogue', 'rogue'] }]);
+  for (let seed = 1; seed <= 20; seed++) {
+    const state = run(map, lanes, raid, seed);
+    const fire = state.events.find((e) => e.type === 'fire');
+    const sabotage = state.events.find((e) => e.type === 'sabotage');
+    assert.ok(fire.damage > 0, `seed ${seed}: 발동 이벤트에 피해가 실려야 합니다`);
+    if (sabotage) assert.equal(sabotage.damage, undefined, '훼손 이벤트에 피해가 붙으면 안 됩니다');
+  }
+});
+
+test('배치 단계 분석이 연계 성립 여부를 전투 전에 맞춘다', async () => {
+  const { analyseLanes } = await import('../src/sim/analysis.js');
+
+  const near = testMap({
+    rooms: [{ roomId: 'oil_room', x: 100, y: 300 }, { roomId: 'flame_altar', x: 160, y: 300 }],
+  });
+  const far = testMap({
+    rooms: [{ roomId: 'oil_room', x: 100, y: 300 }, { roomId: 'flame_altar', x: 500, y: 300 }],
+  });
+  const raid = raidOf([{ gate: 0, at: 0, units: ['knight', 'knight'] }]);
+
+  const nearLink = analyseLanes(near, [laneOf(0, near, [0, 1])], raid).links.find((l) => l.kind === 'combo');
+  const farLink = analyseLanes(far, [laneOf(0, far, [0, 1])], raid).links.find((l) => l.kind === 'combo');
+
+  assert.equal(nearLink.ok, true);
+  assert.equal(farLink.ok, false);
+
+  // 예측이 실제 전투와 일치해야 합니다. 어긋나면 UI 가 거짓말을 하는 셈입니다.
+  assert.ok(run(near, [laneOf(0, near, [0, 1])], raid).events.some((e) => e.type === 'combo'));
+  assert.ok(run(far, [laneOf(0, far, [0, 1])], raid).events.some((e) => e.type === 'comboMiss'));
+});
+
+test('배치 단계 분석이 공유 방과 빈 노선을 지목한다', async () => {
+  const { analyseLanes } = await import('../src/sim/analysis.js');
+  const map = testMap({
+    rooms: [{ roomId: 'blast_trap', x: 450, y: 300 }],
+    gates: [{ x: 0, y: 300 }, { x: 0, y: 100 }],
+  });
+  const raid = raidOf([
+    { gate: 0, at: 0, units: ['knight'] },
+    { gate: 1, at: 0, units: ['rogue'] },
+  ]);
+
+  const shared = analyseLanes(map, [laneOf(0, map, [0]), laneOf(1, map, [0])], raid);
+  assert.ok(shared.warnings.some((w) => w.kind === 'shared' && w.lanes.length === 2));
+
+  const bare = analyseLanes(map, [laneOf(0, map, [0]), { gate: 1, rooms: [] }], raid);
+  assert.ok(bare.warnings.some((w) => w.kind === 'bare' && w.laneIndex === 1));
+});
+
+test('노선 속도 예측은 그 입구로 오는 가장 느린 침입자를 따른다', async () => {
+  const { laneSpeed } = await import('../src/sim/analysis.js');
+  const raid = raidOf([
+    { gate: 0, at: 0, units: ['rogue', 'knight'] },
+    { gate: 1, at: 0, units: ['rogue'] },
+  ]);
+  assert.equal(laneSpeed(raid, 0), UNITS.knight.speed, '기사가 섞이면 파티는 기사 속도입니다');
+  assert.equal(laneSpeed(raid, 1), UNITS.rogue.speed);
+});
+
+test('연출이 참조하는 방 식별자가 모든 이벤트에 들어 있다', () => {
+  // 연출 계층은 이벤트에서 방을 찾아 그 자리에 효과를 놓습니다.
+  // 방을 가리키지 못하는 이벤트가 있으면 그 연출은 조용히 사라집니다.
+  const map = testMap({
+    rooms: [{ roomId: 'oil_room', x: 200, y: 300 }, { roomId: 'flame_altar', x: 250, y: 300 }],
+  });
+  const state = run(map, [laneOf(0, map, [0, 1])], raidOf([{ gate: 0, at: 0, units: ['knight'] }]));
+  const ids = new Set(map.rooms.map((r) => r.id));
+
+  for (const e of state.events) {
+    if (!['fire', 'skip', 'combo', 'comboMiss', 'sabotage', 'hold'].includes(e.type)) continue;
+    const id = e.room ?? e.source;
+    assert.ok(id && ids.has(id), `${e.type} 이벤트가 방을 가리키지 못합니다: ${JSON.stringify(e)}`);
+  }
+  // 연계는 출처 방도 가리켜야 두 방을 잇는 호를 그릴 수 있습니다.
+  const combo = state.events.find((e) => e.type === 'combo');
+  assert.ok(ids.has(combo.from), '연계 이벤트에 출처 방이 있어야 합니다');
+});
+
+test('추천 연결은 성립하는 기름 연계를 만들어 준다', async () => {
+  const { newRun, suggestLayout, startBattle, currentRaid } = await import('../src/core/state.js');
+  const { analyseLanes } = await import('../src/sim/analysis.js');
+
+  // 추천이 매번 연계를 끊어 놓으면 플레이어는 연계가 불가능하다고 배웁니다.
+  let madeCombo = 0;
+  let firedCombo = 0;
+  const SEEDS = 24;
+  for (let seed = 1; seed <= SEEDS; seed++) {
+    const r = newRun(seed);
+    suggestLayout(r);
+    const links = analyseLanes(r.map, r.lanes, currentRaid(r), { statusScale: r.statusScale }).links;
+    if (links.some((l) => l.kind === 'combo' && l.ok)) madeCombo += 1;
+    startBattle(r);
+    if (r.battle.runToEnd().events.some((e) => e.type === 'combo')) firedCombo += 1;
+  }
+  // 첫 습격은 예산이 빠듯해 지도 반대편의 쌍까지는 잇지 못합니다.
+  // 다만 '대부분의 판에서 연계를 보여 준다'는 보장은 있어야 합니다.
+  assert.ok(madeCombo >= SEEDS * 0.6, `연계를 만든 비율이 낮습니다: ${madeCombo}/${SEEDS}`);
+  assert.ok(firedCombo >= SEEDS * 0.5, `실제로 터진 비율이 낮습니다: ${firedCombo}/${SEEDS}`);
+});
+
+test('모든 지도에 성립 가능한 기름 연계가 최소 하나는 있다', async () => {
+  const { suggestCombos } = await import('../src/sim/analysis.js');
+  const raid = raidOf([{ gate: 0, at: 0, units: ['knight'] }]);
+  for (let seed = 1; seed <= 60; seed++) {
+    const map = generateMap(seed);
+    const lanes = [{ gate: 0, rooms: [] }];
+    const picks = suggestCombos(map, lanes, raid, {}, 3);
+    assert.ok(picks.length > 0, `seed ${seed}: 연계가 가능한 방 쌍이 없습니다`);
+  }
+});
+
+test('추천 연결은 어떤 노선도 비워 두지 않는다', async () => {
+  const { newRun, suggestLayout, startBattle, finishBattle, chooseReward, PHASES, currentRaid } =
+    await import('../src/core/state.js');
+
+  // 방이 없는 노선은 그대로 뚫립니다. 추천이 그런 상태를 남기면 추천이 아닙니다.
+  for (let seed = 1; seed <= 12; seed++) {
+    const run = newRun(seed);
+    let guard = 0;
+    while (run.phase !== PHASES.OVER && guard++ < 10) {
+      suggestLayout(run);
+      for (const lane of run.lanes) {
+        assert.ok(
+          lane.rooms.length > 0,
+          `seed ${seed}, 습격 ${currentRaid(run)?.id}: ${run.map.gates[lane.gate].name} 노선이 비었습니다`,
+        );
+      }
+      startBattle(run);
+      run.battle.runToEnd();
+      finishBattle(run);
+      if (run.phase === PHASES.REWARD) chooseReward(run, run.rewards[0].id);
+    }
+  }
 });
