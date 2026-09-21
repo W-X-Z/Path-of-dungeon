@@ -36,8 +36,7 @@ export function generateMap(seed, roomCount = 8) {
   const MIN_APART = 86;
   const MARGIN = 74;
 
-  // 처음 두 개는 공격 계열을 보장합니다 — 필요한 방이 전혀 나오지 않는 상황 방지.
-  const guaranteed = ['orc_post', 'blast_trap'];
+  const bag = drawBag(rng, roomCount);
 
   let guard = 0;
   while (rooms.length < roomCount && guard++ < 4000) {
@@ -47,12 +46,25 @@ export function generateMap(seed, roomCount = 8) {
     if (dist(p, castle) < MIN_FROM_CASTLE) continue;
     if (rooms.some((r) => dist(p, r) < MIN_APART)) continue;
     if (gates.some((g) => dist(p, g) < 60)) continue;
-    const roomId = rooms.length < guaranteed.length ? guaranteed[rooms.length] : rng.pick(ROOM_IDS);
-    rooms.push(makeRoomInstance(roomId, p.x, p.y, rooms.length));
+    rooms.push(makeRoomInstance(bag[rooms.length], p.x, p.y, rooms.length));
   }
 
   ensureGateReach(rooms, gates, rng);
   return { seed, castle, gates, rooms };
+}
+
+/**
+ * 방 종류를 매번 독립적으로 뽑으면 폭발 함정만 세 개인 지도가 나옵니다.
+ * 봉지에서 뽑는 방식으로 모든 종류가 최소 한 번씩 나오도록 보장합니다.
+ * (필요한 방이 전혀 나오지 않아 전략 자체가 불가능해지는 상황을 막습니다.)
+ */
+function drawBag(rng, count) {
+  const bag = rng.shuffle(ROOM_IDS);
+  while (bag.length < count) bag.push(...rng.shuffle(ROOM_IDS));
+  // 공격 계열 하나는 반드시 초반 자리에 둡니다. 초반 자리가 입구 근처로 당겨지기 때문입니다.
+  const attackAt = bag.findIndex((id) => id === 'orc_post' || id === 'blast_trap');
+  if (attackAt > 0) [bag[0], bag[attackAt]] = [bag[attackAt], bag[0]];
+  return bag.slice(0, count);
 }
 
 export function makeRoomInstance(roomId, x, y, index) {

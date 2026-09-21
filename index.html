@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>마왕의 미궁 노선도</title>
+<meta name="description" content="침입 경로를 다시 그려 인간군을 막아내는 노선 설계 디펜스" />
+<link rel="stylesheet" href="./styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#9819;</text></svg>" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="brand">마왕의 미궁 <span>노선도</span></div>
+      <div class="meter" id="castle-meter">
+        <span class="meter-label">마왕성</span>
+        <div class="bar"><i id="castle-fill"></i></div>
+        <span class="meter-value" id="castle-value">100</span>
+      </div>
+      <div class="meter" id="budget-meter">
+        <span class="meter-label">통로 예산</span>
+        <div class="bar"><i id="budget-fill"></i></div>
+        <span class="meter-value" id="budget-value">0 / 0</span>
+      </div>
+      <div class="raid-chip" id="raid-chip">습격 1</div>
+    </header>
+
+    <main id="stage">
+      <canvas id="map"></canvas>
+      <div id="notice" hidden></div>
+      <div id="tooltip" hidden></div>
+    </main>
+
+    <aside id="panel"></aside>
+  </div>
+
+  <div id="overlay" hidden></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

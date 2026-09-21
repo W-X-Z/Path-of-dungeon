@@ -175,3 +175,93 @@ test('생성된 지도는 모든 입구 근처에 연결 가능한 방을 보장
     assert.ok(map.rooms.some((r) => r.roomId === 'blast_trap'));
   }
 });
+
+test('도적의 훼손은 이번 발동을 막지 않고 다음 발동만 늦춘다', () => {
+  // 쿨타임이 0인 방에 도적만으로 구성된 부대를 통과시킵니다.
+  // 훼손이 일어나든 말든 방은 반드시 이번엔 발동해야 합니다.
+  const map = testMap({ rooms: [{ roomId: 'blast_trap', x: 300, y: 300 }] });
+  const lanes = [laneOf(0, map, [0])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['rogue', 'rogue', 'rogue'] }]);
+
+  for (let seed = 1; seed <= 25; seed++) {
+    const state = run(map, lanes, raid, seed);
+    const fires = state.events.filter((e) => e.type === 'fire');
+    const skips = state.events.filter((e) => e.type === 'skip');
+    assert.equal(fires.length, 1, `seed ${seed}: 준비된 방은 반드시 발동해야 합니다`);
+    assert.equal(skips.length, 0, `seed ${seed}: 훼손이 발동 자체를 막으면 안 됩니다`);
+
+    // 훼손이 있었다면 쿨타임이 기본값보다 길어져 있어야 합니다.
+    const sabotaged = state.events.some((e) => e.type === 'sabotage');
+    const room = state.rooms.get(map.rooms[0].id);
+    if (sabotaged) assert.ok(room.cd > 0 || room.fired === 1);
+  }
+});
+
+test('훼손당한 방은 뒤따르는 부대를 놓친다 (지연은 실제로 작동한다)', () => {
+  const map = testMap({ rooms: [{ roomId: 'orc_post', x: 200, y: 300 }] });
+  const lanes = [laneOf(0, map, [0])];
+  // 도적(속도 76)은 2.6초에 도착해 방을 발동시킵니다. 쿨타임 5초이므로 7.6초에 복구됩니다.
+  // 본대 기사(속도 44)는 4.2초에 출발해 8.7초에 도착합니다 — 원래대로면 다시 발동합니다.
+  // 훼손으로 2.5초가 더해지면 10.1초까지 밀려 본대를 놓칩니다.
+  const raid = raidOf([
+    { gate: 0, at: 0, units: ['rogue'] },
+    { gate: 0, at: 4.2, units: ['knight'] },
+  ]);
+
+  let missedDueToSabotage = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const state = run(map, lanes, raid, seed);
+    const sabotaged = state.events.some((e) => e.type === 'sabotage');
+    const skipped = state.events.some((e) => e.type === 'skip');
+    if (sabotaged && skipped) missedDueToSabotage += 1;
+    if (!sabotaged) assert.equal(skipped, false, `seed ${seed}: 훼손이 없으면 본대도 막아야 합니다`);
+  }
+  assert.ok(missedDueToSabotage > 0, '훼손이 실제로 뒤 부대를 놓치게 만들어야 합니다');
+});
+
+test('전원을 통과시킨 전투를 "깔끔하다"고 말하지 않는다', () => {
+  const map = testMap({ rooms: [{ roomId: 'oil_room', x: 400, y: 300 }] });
+  // 기름방은 피해를 주지 않습니다. 전투는 끝나지만 아무도 죽지 않습니다.
+  const lanes = [laneOf(0, map, [0])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['knight', 'knight'] }]);
+  const state = run(map, lanes, raid);
+  const report = summarize(state, map);
+
+  assert.equal(state.outcome, 'cleared');
+  assert.equal(state.totals.killed, 0);
+  assert.ok(!report.headline.includes('깔끔'), `실제 문구: ${report.headline}`);
+  assert.ok(report.causes.length > 0, '돌파를 허용했다면 원인을 하나는 말해야 합니다');
+});
+
+test('한 명도 통과시키지 않으면 그렇게 말한다', () => {
+  const map = testMap({
+    rooms: [
+      { roomId: 'oil_room', x: 200, y: 300 },
+      { roomId: 'flame_altar', x: 250, y: 300 },
+      { roomId: 'blast_trap', x: 400, y: 300 },
+      { roomId: 'orc_post', x: 560, y: 300 },
+    ],
+  });
+  const lanes = [laneOf(0, map, [0, 1, 2, 3])];
+  const raid = raidOf([{ gate: 0, at: 0, units: ['rogue'] }]);
+  const state = run(map, lanes, raid);
+  const report = summarize(state, map);
+
+  assert.equal(state.totals.leaked, 0);
+  assert.equal(report.headline, '한 명도 통과시키지 않았습니다.');
+});
+
+test('연계로 적을 죽였으면 같은 발동을 연계 무산으로도 기록하지 않는다', () => {
+  // 기름방 바로 뒤 화염 제단. 도적은 연계 한 방에 죽습니다.
+  const map = testMap({
+    rooms: [{ roomId: 'oil_room', x: 200, y: 300 }, { roomId: 'flame_altar', x: 250, y: 300 }],
+  });
+  const state = run(map, [laneOf(0, map, [0, 1])], raidOf([{ gate: 0, at: 0, units: ['rogue'] }]));
+
+  assert.ok(state.events.some((e) => e.type === 'combo'), '연계는 터져야 합니다');
+  assert.ok(
+    !state.events.some((e) => e.type === 'comboMiss'),
+    '연계가 성공한 발동을 무산으로 기록하면 안 됩니다',
+  );
+  assert.equal(summarize(state, map).combo.misses, 0);
+});

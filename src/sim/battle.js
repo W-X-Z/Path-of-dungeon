@@ -151,16 +151,6 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     const rs = state.rooms.get(node.id);
     const def = ROOMS[node.roomId];
 
-    // 도적은 방에 들어서며 함정을 건드려볼 수 있습니다.
-    for (const m of alive(party)) {
-      const sab = UNITS[m.type].sabotage;
-      if (sab && rng() < sab.chance) {
-        rs.cd += sab.extraCooldown;
-        log('sabotage', { party: party.id, room: node.id, roomName: def.name, by: m.type });
-        break;
-      }
-    }
-
     if (rs.cd > 0) {
       rs.skipped += 1;
       log('skip', {
@@ -176,6 +166,22 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     rs.fired += 1;
     rs.cd = rs.maxCd;
     log('fire', { party: party.id, room: node.id, roomName: def.name, units: alive(party).length });
+
+    // 도적은 지나가면서 함정을 건드려 재정비를 늦춥니다.
+    //
+    // 훼손은 "이번 발동을 막는" 것이 아니라 "다음 발동을 늦추는" 것입니다.
+    // 완전 무효화는 대응할 방법이 없어 노선 설계와 무관한 주사위가 됩니다.
+    // 지연이어야 뒤따르는 본대를 어느 노선으로 보낼지가 선택이 됩니다.
+    for (const m of alive(party)) {
+      const sab = UNITS[m.type].sabotage;
+      if (sab && rng() < sab.chance) {
+        rs.cd += sab.extraCooldown;
+        log('sabotage', { party: party.id, room: node.id, roomName: def.name, by: m.type });
+        break;
+      }
+    }
+
+    const eventsBefore = state.events.length;
 
     for (const eff of def.effects) {
       if (eff.type === 'damage') {
@@ -194,8 +200,20 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
 
     // 화염 계열이 발동했는데 기름이 이미 날아갔다면 그 사실을 남깁니다.
     // 플레이어는 "화력이 부족했다"가 아니라 "기름이 도착 전에 말랐다"를 알아야 합니다.
+    //
+    // 이번 발동에서 연계가 실제로 터졌다면 무산이 아닙니다. 연계로 전멸시킨 경우
+    // 살아남은 기름투성이가 없다는 이유로 무산이라고 적으면 정반대의 기록이 됩니다.
+    const comboFired = state.events
+      .slice(eventsBefore)
+      .some((e) => e.type === 'combo');
     const isFire = def.effects.some((e) => e.type === 'damage' && e.school === 'fire');
-    if (isFire && party.oilAppliedAt !== null && !alive(party).some((m) => m.statuses.oily)) {
+    if (
+      isFire &&
+      !comboFired &&
+      party.oilAppliedAt !== null &&
+      alive(party).length > 0 &&
+      !alive(party).some((m) => m.statuses.oily)
+    ) {
       log('comboMiss', {
         party: party.id,
         room: node.id,

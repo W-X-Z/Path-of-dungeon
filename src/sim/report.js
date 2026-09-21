@@ -91,16 +91,40 @@ export function summarize(state, map) {
     });
   }
 
+  // 원인을 하나도 짚지 못했는데 돌파를 허용했다면, 그냥 화력이 모자란 것입니다.
+  // 아무 말도 하지 않는 것보다 '어디가 모자랐는지'를 말해 주는 편이 낫습니다.
+  if (causes.length === 0 && state.totals.leaked > 0) {
+    const byLane = groupBy(leaks, (e) => e.lane);
+    const [worstLane, worstLeaks] = [...byLane].sort(
+      (a, b) => sumDamage(b[1]) - sumDamage(a[1]),
+    )[0];
+    const laneName = map.gates[worstLane]?.name ?? `${worstLane}번 입구`;
+    causes.push({
+      weight: 1,
+      kind: 'thin',
+      text: `${state.totals.leaked}명이 살아서 마왕성에 도달했습니다.`,
+      detail: `${laneName} 노선에서 가장 많이 샜습니다 (마왕성 -${Math.round(sumDamage(worstLeaks))}). 방을 지나가긴 했지만 죽일 만큼은 아니었습니다.`,
+      fix: '이 노선에 방을 더 끼워 넣거나, 기름방 → 화염 제단처럼 서로를 증폭시키는 연계를 만드세요.',
+    });
+  }
+
   causes.sort((a, b) => b.weight - a.weight);
 
+  // 결과 문구는 '전투가 끝났는가'가 아니라 '실제로 얼마나 막았는가'를 따릅니다.
+  // 전원을 통과시키고도 습격이 끝났다는 이유로 '깔끔하다'고 말하면 안 됩니다.
+  const { leaked, spawned, killed } = state.totals;
   const headline =
-    state.outcome === 'cleared'
-      ? causes.length
-        ? '막아냈습니다. 다만 아래가 아슬아슬했습니다.'
-        : '깔끔하게 막아냈습니다.'
-      : state.outcome === 'lost'
-        ? '마왕성이 함락됐습니다.'
-        : '시간이 다 됐습니다.';
+    state.outcome === 'lost'
+      ? '마왕성이 함락됐습니다.'
+      : state.outcome === 'timeout'
+        ? '시간이 다 됐습니다.'
+        : leaked === 0
+          ? '한 명도 통과시키지 않았습니다.'
+          : killed === 0
+            ? '한 명도 잡지 못했습니다. 전부 지나갔습니다.'
+            : leaked <= spawned * 0.34
+              ? '막아냈습니다. 다만 아래가 아슬아슬했습니다.'
+              : `${spawned}명 중 ${leaked}명을 놓쳤습니다.`;
 
   return {
     outcome: state.outcome,
@@ -130,6 +154,8 @@ function groupBy(list, keyFn) {
 }
 
 const fmtTime = (t) => `${t.toFixed(1)}초`;
+
+const sumDamage = (list) => list.reduce((s, e) => s + e.damage, 0);
 
 function fmtUnits(units) {
   const counts = new Map();
