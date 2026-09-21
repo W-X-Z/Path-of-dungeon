@@ -144,7 +144,7 @@ export function createHud(dom, actions) {
       <div class="sec">
         <div class="speeds">
           <button class="btn hold ${run.paused ? 'on' : ''}" data-action="togglePause"
-            title="스페이스바">${run.paused ? '\u25B6' : '\u2016'}</button>
+            title="일시정지">${run.paused ? '\u25B6' : '\u2016'}</button>
           ${[1, 2, 4]
             .map(
               (s) =>
@@ -217,8 +217,8 @@ export function createHud(dom, actions) {
             <small>아무 곳이나 눌러 시작</small>
           </div>`
         : `<div class="card" data-action="closeCoach" data-value="pod.coach2">
-            <h3>보는 동안에도 고칠 수 있습니다</h3>
-            <p><b>스페이스바</b>로 멈추고 길을 다시 그으세요.</p>
+            <h3>보는 동안에도 고칩니다</h3>
+            <p>${pauseHint()}로 멈추고 길을 다시 그으세요.</p>
             <p>고친 길은 <b>다음에 출발하는 부대</b>부터 적용됩니다.</p>
             <small>아무 곳이나 눌러 계속</small>
           </div>`;
@@ -434,6 +434,12 @@ function countUnits(units) {
   const m = new Map();
   for (const u of units) m.set(u, (m.get(u) ?? 0) + 1);
   return [...m];
+}
+
+/** 키보드가 없는 기기에 스페이스바를 안내하면 안 됩니다. */
+function pauseHint() {
+  const touch = typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+  return touch ? '<b>\u2016 버튼</b>' : '<b>스페이스바</b>';
 }
 
 function safeGet(key) {

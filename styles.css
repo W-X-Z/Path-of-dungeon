@@ -53,6 +53,8 @@
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
+  /* 뷰포트 단위 대신 부모를 따릅니다. 바깥 껍데기가 안전영역 패딩을 가질 수 있어서,
+     100dvh 로 잡으면 그만큼 아래가 잘립니다. */
   height: 100%;
   background: var(--void);
   color: var(--bone);
@@ -69,7 +71,8 @@ button { font: inherit; color: inherit; }
   grid-template-columns: 1fr 308px;
   grid-template-rows: 54px 1fr;
   grid-template-areas: "top top" "stage panel";
-  height: 100dvh;
+  height: 100%;
+  min-height: 0;
 }
 
 /* ───────────────────────── 상단 */
@@ -144,8 +147,9 @@ button { font: inherit; color: inherit; }
 }
 #coach .card {
   text-align: center; max-width: 330px; padding: 26px;
+  text-wrap: pretty;
 }
-#coach h3 { font-family: var(--display); font-size: 21px; margin: 0 0 14px; }
+#coach h3 { font-family: var(--display); font-size: 21px; margin: 0 0 14px; text-wrap: balance; }
 #coach p { color: var(--dust); line-height: 1.75; margin: 0 0 8px; font-size: 13px; }
 #coach b { color: var(--bone); }
 #coach small { color: var(--faint); display: block; margin-top: 18px; font-size: 11px; }
@@ -299,19 +303,36 @@ table.rooms .nm { display: flex; align-items: center; gap: 7px; }
 
 /* ───────────────────────── 좁은 화면 */
 
+/* 그리드 칸은 기본적으로 자식의 min-content 보다 좁아지지 않습니다.
+   좁은 화면에서 상단 바 하나가 화면 전체를 밀어내는 것을 막습니다. */
+#app, #topbar, #stage, #panel { min-width: 0; }
+#topbar > * { min-width: 0; }
+
 @media (max-width: 900px) {
   #app {
     grid-template-columns: 1fr;
-    grid-template-rows: 50px minmax(0, 1fr) minmax(0, 44dvh);
+    grid-template-rows: 48px minmax(0, 1fr) minmax(0, 40%);
     grid-template-areas: "top" "stage" "panel";
   }
-  #panel { border-left: none; border-top: 1px solid var(--hair); }
-  #topbar { gap: 12px; padding: 0 12px; }
+  #panel { border-left: none; border-top: 1px solid var(--hair); padding: 12px 12px 14px; gap: 14px; }
+  #topbar { gap: 10px; padding: 0 12px; }
   .brand { font-size: 14px; }
-  .gauge { max-width: none; }
+  .gauge { max-width: none; gap: 6px; }
   .rewards { grid-template-columns: 1fr; }
   .sheet { padding: 20px; }
-  .sheet h2 { font-size: 21px; }
+  .sheet h2 { font-size: 20px; }
+  .clock { font-size: 32px; }
+}
+
+/* 휴대폰 폭에서는 게이지 라벨을 접습니다. 막대와 숫자만으로도 읽힙니다. */
+@media (max-width: 560px) {
+  .gauge .lbl { display: none; }
+  .brand { font-size: 13px; }
+  .gauge b { font-size: 17px; min-width: 26px; }
+  .gauge.budget b { font-size: 15px; }
+  .raid-chip { font-size: 16px; margin-left: 10px; }
+  .mute { width: 26px; height: 26px; font-size: 13px; }
+  #topbar { gap: 8px; padding: 0 10px; }
 }
 
 /* 상단 게이지 라벨 */
