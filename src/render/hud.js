@@ -28,7 +28,7 @@ export function createHud(dom, actions) {
 
   function render(run, ui, analysis = { links: [], warnings: [] }) {
     renderTop(run);
-    dom.panel.innerHTML = run.phase === PHASES.BATTLE ? battlePanel(run) : buildPanel(run, analysis);
+    dom.panel.innerHTML = run.phase === PHASES.BATTLE ? battlePanel(run, analysis) : buildPanel(run, analysis);
     dom.notice.hidden = !run.notice;
     if (run.notice) dom.notice.textContent = run.notice;
     renderTooltip(run, ui);
@@ -85,7 +85,27 @@ export function createHud(dom, actions) {
 
       <div class="sec">
         <h3>노선</h3>
-        ${run.lanes
+        ${laneChips(run, analysis, shared)}
+      </div>
+
+      <div class="sec">
+        <h3>경로</h3>
+        ${routeStrip(run, analysis)}
+      </div>
+
+      ${comboHints(run)}
+
+      <div class="push">
+        <button class="btn go" data-action="start">습격 시작</button>
+        <div class="row">
+          <button class="btn quiet" data-action="suggest">추천 연결</button>
+          <button class="btn quiet" data-action="restart">새 지도</button>
+        </div>
+      </div>`;
+  }
+
+  function laneChips(run, analysis, shared) {
+    return run.lanes
           .map((lane, i) => {
             const color = LANE_COLORS[i % LANE_COLORS.length];
             const mine = analysis.links.filter((l) => l.laneIndex === i);
@@ -105,26 +125,10 @@ export function createHud(dom, actions) {
               <span class="tags">${tags.join('')}</span>
             </button>`;
           })
-          .join('')}
-      </div>
-
-      <div class="sec">
-        <h3>경로</h3>
-        ${routeStrip(run, analysis)}
-      </div>
-
-      ${comboHints(run)}
-
-      <div class="push">
-        <button class="btn go" data-action="start">습격 시작</button>
-        <div class="row">
-          <button class="btn quiet" data-action="suggest">추천 연결</button>
-          <button class="btn quiet" data-action="restart">새 지도</button>
-        </div>
-      </div>`;
+          .join('');
   }
 
-  function battlePanel(run) {
+  function battlePanel(run, analysis) {
     const b = run.battle.state;
     return `
       <div class="sec">
@@ -137,15 +141,22 @@ export function createHud(dom, actions) {
       </div>
 
       <div class="sec">
-        <h3>속도</h3>
         <div class="speeds">
+          <button class="btn hold ${run.paused ? 'on' : ''}" data-action="togglePause"
+            title="스페이스바">${run.paused ? '\u25B6' : '\u2016'}</button>
           ${[1, 2, 4]
             .map(
               (s) =>
-                `<button class="btn ${run.speed === s ? 'on' : ''}" data-action="setSpeed" data-value="${s}">${s}×</button>`,
+                `<button class="btn ${!run.paused && run.speed === s ? 'on' : ''}" data-action="setSpeed" data-value="${s}">${s}×</button>`,
             )
             .join('')}
         </div>
+      </div>
+
+      <div class="sec">
+        <h3>노선 — 지금도 고칠 수 있습니다</h3>
+        ${laneChips(run, analysis, sharedCounts(run.map, run.lanes))}
+        <div class="rewire">고친 길은 <b>다음에 출발하는 부대</b>부터 적용됩니다.</div>
       </div>
 
       ${marchHtml(run)}
@@ -179,20 +190,37 @@ export function createHud(dom, actions) {
     dom.tooltip.style.top = `${Math.min(stage.height - 160, Math.max(8, (ui.pointer?.y ?? 0) + 16))}px`;
   }
 
-  /** 조작 설명은 패널에 상주시키지 않고 첫 판에 한 번만 띄웁니다. */
+  /**
+   * 조작 설명은 패널에 상주시키지 않고 필요한 순간에 한 번만 띄웁니다.
+   * 두 번째 안내는 전투가 시작된 뒤에 나옵니다 — 그때가 알아야 할 시점이기 때문입니다.
+   */
   function renderCoach(run) {
-    const done = safeGet('pod.coach');
-    if (done || run.phase !== PHASES.BUILD || run.raidIndex > 0) {
+    const step =
+      run.phase === PHASES.BUILD && run.raidIndex === 0 && !safeGet('pod.coach')
+        ? 'build'
+        : run.phase === PHASES.BATTLE && run.raidIndex === 0 && !safeGet('pod.coach2')
+          ? 'battle'
+          : null;
+
+    if (!step) {
       dom.coach.hidden = true;
       return;
     }
     dom.coach.hidden = false;
-    dom.coach.innerHTML = `<div class="card" data-action="closeCoach">
-      <h3>선을 잡아 방 위로</h3>
-      <p>침입자는 <b>선이 지나는 방을, 그 순서대로</b> 통과합니다.</p>
-      <p>선을 끌어다 놓거나 방을 눌러 넣고 뺍니다.</p>
-      <small>아무 곳이나 눌러 시작</small>
-    </div>`;
+    dom.coach.innerHTML =
+      step === 'build'
+        ? `<div class="card" data-action="closeCoach" data-value="pod.coach">
+            <h3>선을 잡아 방 위로</h3>
+            <p>침입자는 <b>선이 지나는 방을, 그 순서대로</b> 통과합니다.</p>
+            <p>선을 끌어다 놓거나 방을 눌러 넣고 뺍니다.</p>
+            <small>아무 곳이나 눌러 시작</small>
+          </div>`
+        : `<div class="card" data-action="closeCoach" data-value="pod.coach2">
+            <h3>보는 동안에도 고칠 수 있습니다</h3>
+            <p><b>스페이스바</b>로 멈추고 길을 다시 그으세요.</p>
+            <p>고친 길은 <b>다음에 출발하는 부대</b>부터 적용됩니다.</p>
+            <small>아무 곳이나 눌러 계속</small>
+          </div>`;
   }
 
   function renderOverlay(run) {
@@ -290,7 +318,7 @@ function marchHtml(run) {
     ${parties
       .map((p) => {
         const color = LANE_COLORS[p.lane % LANE_COLORS.length];
-        const next = run.battle.state.routes[p.lane]?.nodes[p.nextNode];
+        const next = p.route?.nodes[p.nextNode];
         return `<div class="march">
           <span class="pip" style="background:${color}"></span>
           <span class="mobs">${p.members

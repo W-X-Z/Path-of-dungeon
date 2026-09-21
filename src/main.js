@@ -2,7 +2,7 @@ import { newRun, PHASES, startBattle, advanceBattle, chooseReward, suggestLayout
 import { createRenderer } from './render/canvas.js';
 import { createHud } from './render/hud.js';
 import { attachInput } from './input/dragline.js';
-import { unlockAudio, createSfxPump } from './audio/sfx.js';
+import { unlockAudio, createSfxPump, setMuted, isMuted } from './audio/sfx.js';
 
 const dom = {
   stage: document.getElementById('stage'),
@@ -17,6 +17,7 @@ const dom = {
   budgetFill: document.getElementById('budget-fill'),
   budgetValue: document.getElementById('budget-value'),
   raidChip: document.getElementById('raid-chip'),
+  mute: document.getElementById('mute'),
 };
 
 /**
@@ -43,10 +44,11 @@ const ui = attachInput(dom.canvas, () => run, renderer, markDirty);
 const hud = createHud(dom, {
   selectLane: (v) => { run.selectedLane = Number(v); markDirty(); },
   suggest: () => { suggestLayout(run); markDirty(); },
-  setSpeed: (v) => { run.speed = Number(v); markDirty(); },
+  setSpeed: (v) => { run.speed = Number(v); run.paused = false; markDirty(); },
+  togglePause: () => { run.paused = !run.paused; markDirty(); },
   chooseReward: (id) => { chooseReward(run, id); markDirty(); },
-  closeCoach: () => {
-    try { localStorage.setItem('pod.coach', '1'); } catch { /* 사생활 보호 모드 */ }
+  closeCoach: (key) => {
+    try { localStorage.setItem(key ?? 'pod.coach', '1'); } catch { /* 사생활 보호 모드 */ }
     markDirty();
   },
   start: () => {
@@ -72,7 +74,33 @@ dom.canvas.addEventListener('pointermove', (e) => {
   ui.pointer = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 });
 dom.canvas.addEventListener('pointerdown', unlockAudio, { once: true });
+
+// 소리를 끌 방법이 없는 게임은 소리를 켤 이유도 주지 못합니다.
+try {
+  if (localStorage.getItem('pod.muted') === '1') setMuted(true);
+} catch { /* 사생활 보호 모드 */ }
+const paintMute = () => {
+  dom.mute.textContent = isMuted() ? '\u266A\u0338' : '\u266A';
+  dom.mute.classList.toggle('off', isMuted());
+  dom.mute.title = isMuted() ? '소리 켜기' : '소리 끄기';
+};
+dom.mute.addEventListener('click', () => {
+  setMuted(!isMuted());
+  try { localStorage.setItem('pod.muted', isMuted() ? '1' : '0'); } catch { /* 무시 */ }
+  paintMute();
+});
+paintMute();
 window.addEventListener('resize', markDirty);
+
+// 스페이스바로 멈추고 이어갑니다. 길을 고치려면 일단 멈출 수 있어야 합니다.
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.target.closest('button, input, textarea')) return;
+  e.preventDefault();
+  if (run.phase === PHASES.BATTLE) {
+    run.paused = !run.paused;
+    markDirty();
+  }
+});
 
 let last = performance.now();
 let hudTimer = 0;

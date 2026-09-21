@@ -66,9 +66,12 @@ export function syncLanes(run) {
 
 export const spent = (run) => totalCost(run.map, run.lanes);
 
+/** 지금 노선을 고칠 수 있는 단계인지. 전투 중에도 고칠 수 있습니다. */
+export const canEdit = (run) => run.phase === PHASES.BUILD || run.phase === PHASES.BATTLE;
+
 /** 방을 현재 선택된 노선에 넣거나 뺍니다. 실패하면 사유를 notice 에 남깁니다. */
 export function tapRoom(run, roomId, atIndex = null) {
-  if (run.phase !== PHASES.BUILD) return false;
+  if (!canEdit(run)) return false;
   const res = toggleRoom(run.map, run.lanes, run.selectedLane, roomId, run.budget, atIndex);
   if (!res.ok) {
     run.notice = res.reason;
@@ -169,9 +172,12 @@ function freeUpBudget(run, exceptLane) {
 export function startBattle(run) {
   const raid = currentRaid(run);
   if (!raid || run.phase !== PHASES.BUILD) return;
+  run.paused = false;
   run.battle = createBattle({
     map: run.map,
-    lanes: run.lanes,
+    // 노선을 값이 아니라 참조로 넘깁니다. 전투 중에 고친 노선이 곧바로 반영되고,
+    // 이미 출발한 부대는 자기 경로를 그대로 유지합니다.
+    lanes: () => run.lanes,
     raid,
     castleHp: run.castleHp,
     seed: run.seed + raid.id * 7919,
@@ -184,7 +190,7 @@ export function startBattle(run) {
 
 /** 실제 경과 시간을 고정 틱으로 나눠 돌립니다. 프레임률과 무관하게 같은 결과가 나옵니다. */
 export function advanceBattle(run, elapsed, speed = 1) {
-  if (run.phase !== PHASES.BATTLE || !run.battle) return;
+  if (run.phase !== PHASES.BATTLE || !run.battle || run.paused) return;
   run.accumulator = (run.accumulator ?? 0) + elapsed * speed;
   let guard = 0;
   while (run.accumulator >= TICK && guard++ < 600) {

@@ -1,11 +1,14 @@
 import { laneNodes, insertionDeltaAt } from '../sim/graph.js';
 import { segmentDistance } from '../core/geom.js';
-import { PHASES, tapRoom } from '../core/state.js';
+import { canEdit, tapRoom } from '../core/state.js';
 
 const SEG_GRAB = 16;   // 선을 잡을 수 있는 거리 (지도 좌표)
 const SNAP = 34;       // 방에 붙는 거리
 
 /**
+ * 배치 단계와 전투 중 모두 같은 조작을 씁니다.
+ * 전투를 지켜보기만 하는 시간이 길면 '하는 게임'이 아니라 '보는 게임'이 됩니다.
+ *
  * 조작은 두 가지뿐입니다.
  *   1. 노선의 선을 잡아 방 위로 끌어다 놓으면 그 방이 경로에 끼어듭니다.
  *   2. 경로에 이미 있는 방을 누르면 빠집니다.
@@ -36,7 +39,7 @@ export function attachInput(canvas, getRun, renderer, onChange) {
 
   canvas.addEventListener('pointerdown', (e) => {
     const run = getRun();
-    if (run.phase !== PHASES.BUILD) return;
+    if (!canEdit(run)) return;
     canvas.setPointerCapture(e.pointerId);
     const p = pos(e);
     const room = renderer.roomAt(run, p);
@@ -56,7 +59,7 @@ export function attachInput(canvas, getRun, renderer, onChange) {
     const hover = renderer.roomAt(run, p);
     ui.hoverRoomId = hover?.id ?? null;
 
-    if (down && run.phase === PHASES.BUILD) {
+    if (down && canEdit(run)) {
       const moved = Math.hypot(p.x - down.p.x, p.y - down.p.y) > 6;
       if (moved) down.moved = true;
       // 방 위에서 시작했더라도 끌면 드래그로 전환합니다.

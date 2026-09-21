@@ -426,3 +426,57 @@ test('추천 연결은 어떤 노선도 비워 두지 않는다', async () => {
     }
   }
 });
+
+test('전투 중 노선을 고치면 다음 부대부터 적용되고, 이동 중인 부대는 원래 길로 간다', () => {
+  // 이 규칙이 있어야 전투 중 편집이 '길을 계속 바꿔 적을 왕복시키는' 수로 변질되지 않습니다.
+  const map = testMap({
+    rooms: [
+      { roomId: 'orc_post', x: 300, y: 180 },
+      { roomId: 'blast_trap', x: 300, y: 420 },
+    ],
+  });
+  let lanes = [laneOf(0, map, [0])]; // 처음에는 오크 초소만 거칩니다
+  const raid = raidOf([
+    { gate: 0, at: 0, units: ['knight'] },
+    { gate: 0, at: 8, units: ['knight'] },
+  ]);
+
+  const battle = createBattle({
+    map,
+    lanes: () => lanes,
+    raid,
+    castleHp: CASTLE_HP,
+    seed: 3,
+  });
+
+  // 첫 부대가 출발해 이동을 시작할 때까지 돌립니다.
+  while (battle.state.time < 2) battle.step();
+  assert.equal(battle.state.parties.length, 1, '첫 부대가 이동 중이어야 합니다');
+
+  // 여기서 노선을 폭발 함정 쪽으로 통째로 갈아탑니다.
+  lanes = [laneOf(0, map, [1])];
+  battle.runToEnd();
+
+  const fired = battle.state.events.filter((e) => e.type === 'fire');
+  const byOrc = fired.filter((e) => e.roomName === '오크 초소');
+  const byBlast = fired.filter((e) => e.roomName === '폭발 함정');
+
+  assert.equal(byOrc.length, 1, '이동 중이던 부대는 원래 경로의 오크 초소를 그대로 거쳐야 합니다');
+  assert.equal(byBlast.length, 1, '수정 이후 출발한 부대는 새 경로의 폭발 함정을 거쳐야 합니다');
+  assert.ok(byOrc[0].t < byBlast[0].t);
+});
+
+test('전투 중 편집은 예산 규칙을 똑같이 지킨다', async () => {
+  const { newRun, startBattle, tapRoom, canEdit, PHASES } = await import('../src/core/state.js');
+  const run = newRun(21);
+  startBattle(run);
+  assert.equal(run.phase, PHASES.BATTLE);
+  assert.equal(canEdit(run), true, '전투 중에도 고칠 수 있어야 합니다');
+
+  run.budget = 1; // 예산을 없애 버립니다
+  const before = JSON.stringify(run.lanes);
+  const ok = tapRoom(run, run.map.rooms[0].id);
+  assert.equal(ok, false, '예산을 넘는 연결은 전투 중에도 거부돼야 합니다');
+  assert.equal(JSON.stringify(run.lanes), before);
+  assert.match(run.notice, /예산/);
+});

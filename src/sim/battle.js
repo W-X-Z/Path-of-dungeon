@@ -22,16 +22,34 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
   const statusScale = mods.statusScale ?? 1;
   const rng = makeRng(seed ^ (raid.id * 2654435761));
 
-  // 노선별 경로를 미리 굳혀둡니다.
-  // 이동 중인 부대는 출발 당시의 경로를 유지합니다 — 전투 중 경로를 바꿔
-  // 적을 무한히 왕복시키는 문제를 막습니다.
-  const routes = lanes.map((lane) => {
+  // 노선은 전투 중에도 바뀔 수 있습니다. 그래서 경로는 한 번 굳히지 않고
+  // 부대가 출발하는 순간에 그 부대 몫으로 찍어 둡니다.
+  //
+  // 이미 이동 중인 부대는 출발 당시의 경로를 끝까지 유지합니다.
+  // 그래야 길을 계속 바꿔 적을 무한히 왕복시키는 수가 막히고,
+  // 플레이어의 수정은 '다음에 오는 부대'에만 적용됩니다.
+  const laneSource = typeof lanes === 'function' ? lanes : () => lanes;
+
+  function buildRoute(lane) {
     const nodes = laneNodes(map, lane);
     const points = lanePoints(map, lane);
     const cum = [0];
     for (let i = 0; i < points.length - 1; i++) cum.push(cum[i] + dist(points[i], points[i + 1]));
     return { nodes, points, cum, total: cum[cum.length - 1] };
-  });
+  }
+
+  // 현재 노선 기준 경로. 화면과 리포트가 참조하며, 노선이 바뀔 때만 다시 계산합니다.
+  let routeCache = null;
+  let routeKey = '';
+  function routesNow() {
+    const now = laneSource();
+    const key = now.map((l) => `${l.gate}:${l.rooms.join(',')}`).join('|');
+    if (key !== routeKey) {
+      routeKey = key;
+      routeCache = now.map(buildRoute);
+    }
+    return routeCache;
+  }
 
   const roomState = new Map();
   for (const room of map.rooms) {
@@ -48,7 +66,7 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
   }
 
   const pending = raid.squads
-    .filter((s) => s.gate < lanes.length)
+    .filter((s) => s.gate < laneSource().length)
     .map((s, i) => ({ ...s, uid: `squad-${i}` }))
     .sort((a, b) => a.at - b.at);
 
@@ -58,11 +76,13 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     castleHpMax: castleHp,
     parties: [],
     rooms: roomState,
-    routes,
     events: [],
     outcome: null, // 'cleared' | 'lost' | 'timeout'
     totals: { spawned: 0, killed: 0, leaked: 0 },
   };
+
+  // routes 는 '지금 노선 기준'입니다. 부대별 경로는 party.route 에 들어 있습니다.
+  Object.defineProperty(state, 'routes', { get: routesNow, enumerable: true });
 
   let spawnCursor = 0;
   let partySeq = 0;
@@ -75,9 +95,12 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
     while (spawnCursor < pending.length && pending[spawnCursor].at <= state.time) {
       const squad = pending[spawnCursor++];
       const members = squad.units.map((u, i) => makeMember(u, `${partySeq}-${i}`));
+      const lane = laneSource()[squad.gate];
       const party = {
         id: `party-${partySeq++}`,
         lane: squad.gate,
+        // 출발하는 순간의 경로를 이 부대 몫으로 찍어 둡니다.
+        route: buildRoute(lane),
         members,
         progress: 0,
         nextNode: 1, // 0 은 입구이므로 다음 목표는 1번 노드
@@ -292,7 +315,7 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
   }
 
   function advance(party, dt) {
-    const route = state.routes[party.lane];
+    const route = party.route;
     if (!route) return;
 
     if (state.time < party.holdUntil) {
@@ -370,9 +393,8 @@ export function createBattle({ map, lanes, raid, mods = {}, castleHp, seed = 1 }
 
   /** 렌더러가 쓰는 파티 좌표. */
   function partyPosition(party) {
-    const route = state.routes[party.lane];
-    if (!route) return { x: 0, y: 0 };
-    return walkPolyline(route.points, party.progress);
+    if (!party.route) return { x: 0, y: 0 };
+    return walkPolyline(party.route.points, party.progress);
   }
 
   /** 전투를 끝까지 즉시 돌립니다. 테스트와 자동 검증용. */

@@ -5,7 +5,7 @@ import { MAP_W, MAP_H } from '../sim/mapgen.js';
 import { laneNodes, lanePoints, sharedCounts } from '../sim/graph.js';
 import { analyseLanes } from '../sim/analysis.js';
 import { createJuice } from './juice.js';
-import { currentRaid } from '../core/state.js';
+import { currentRaid, canEdit } from '../core/state.js';
 
 const NODE_R = 21;
 const SHAPES = { circle: 'circle', diamond: 'diamond', hex: 'hex' };
@@ -83,7 +83,7 @@ export function createRenderer(canvas) {
 
     run.lanes.forEach((lane, i) => {
       const pts = lanePoints(run.map, lane);
-      const selected = i === run.selectedLane && run.phase === 'build';
+      const selected = i === run.selectedLane && canEdit(run);
       const color = LANE_COLORS[i % LANE_COLORS.length];
 
       const trace = () => {
@@ -141,9 +141,11 @@ export function createRenderer(canvas) {
    * 전투가 끝난 뒤에야 "기름이 말랐다"를 아는 것은 너무 늦습니다.
    */
   function drawLinks(run, analysis) {
-    if (run.phase !== 'build') return;
+    if (!canEdit(run)) return;
+    // 전투가 돌아가는 동안에는 라벨까지 띄우면 시끄럽습니다. 멈췄을 때만 자세히 보여 줍니다.
+    const detailed = run.phase === 'build' || run.paused;
     for (const link of analysis.links) {
-      const selected = link.laneIndex === run.selectedLane;
+      const selected = detailed && link.laneIndex === run.selectedLane;
       const tint = link.kind === 'poison' ? C.venom : link.ok ? C.ember : C.blood;
       const mx = (link.from.x + link.to.x) / 2;
       const my = (link.from.y + link.to.y) / 2;
@@ -205,7 +207,7 @@ export function createRenderer(canvas) {
     const onSelected = run.lanes[run.selectedLane]?.rooms.includes(room.id);
     const used = shares > 0;
     const hovered = ui.hoverRoomId === room.id;
-    const building = run.phase === 'build';
+    const building = canEdit(run);
 
     // 쓰이지 않는 방은 물러나 있어야 합니다. 지금 내 노선에 있는 것이 주인공입니다.
     const alpha = building ? (onSelected ? 1 : used ? 0.78 : 0.42) : used ? 1 : 0.3;
@@ -402,7 +404,7 @@ export function createRenderer(canvas) {
 
     const raid = currentRaid(run);
     const analysis =
-      run.phase === 'build' && raid
+      canEdit(run) && raid
         ? analyseLanes(run.map, run.lanes, raid, {
             statusScale: run.statusScale,
           })

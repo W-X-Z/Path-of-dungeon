@@ -368,3 +368,19 @@ table.rooms .nm { display: flex; align-items: center; gap: 7px; }
   padding: 5px 14px; border-radius: 99px;
   letter-spacing: 0.04em;
 }
+
+/* 일시정지 */
+.speeds .btn.hold { flex: 0 0 44px; font-family: var(--ui); font-size: 13px; }
+.speeds .btn.hold.on { background: var(--sulfur); color: var(--void); }
+.rewire { margin-top: 9px; font-size: 11px; color: var(--faint); line-height: 1.5; }
+.rewire b { color: var(--dust); }
+
+/* 음소거 */
+.mute {
+  margin-left: auto; width: 30px; height: 30px; flex: none;
+  border-radius: 8px; border: 1px solid var(--hair); background: none;
+  color: var(--dust); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.mute:hover { background: var(--ash); color: var(--bone); }
+.mute.off { color: var(--faint); }
+.raid-chip { margin-left: 14px; }
